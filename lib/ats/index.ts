@@ -34,7 +34,7 @@ export type AnalysisResult = {
 
 const STOP = new Set('the and for with from that this your you are our into have has will can all not but use using role team job work years experience about their they its an a to of in on as is be or by at we it this that'.split(' '))
 const ALIASES: Record<string, string> = { javascript: 'js', typescript: 'ts', leadership: 'lead', led: 'lead', collaboration: 'collaborate', analytics: 'analyze', optimisation: 'optimization', optimised: 'optimize' }
-const HEADER_PATTERN = /^(ABOUT|SUMMARY|PROFILE|CAREER OBJECTIVE|PROFESSIONAL SUMMARY|EXPERIENCE|PROFESSIONAL EXPERIENCE|EMPLOYMENT HISTORY|WORK HISTORY|PROJECTS?|PERSONAL PROJECTS|SKILLS|TECHNICAL SKILLS|EDUCATION|CERTIFICATIONS?|LICENSES|ACHIEVEMENTS?|AWARDS|PUBLICATIONS?|RESEARCH|VOLUNTEER EXPERIENCE|LEADERSHIP|EXTRACURRICULAR ACTIVITIES|LANGUAGES|INTERESTS|RELEVANT COURSEWORK|TRAINING|INTERNSHIPS?|REFERENCES|CONTACT INFORMATION|PROFESSIONAL TITLE|OTHER)[\s:]*$/i
+const HEADER_PATTERN = /^(ABOUT(?: ME)?|SUMMARY|PROFILE|CAREER OBJECTIVE|PROFESSIONAL SUMMARY|EXPERIENCE|PROFESSIONAL EXPERIENCE|EMPLOYMENT HISTORY|WORK HISTORY|PROJECTS?|PERSONAL PROJECTS|SKILLS|TECHNICAL SKILLS|EDUCATION|CERTIFICATIONS?|LICENSES|ACHIEVEMENTS?|AWARDS|PUBLICATIONS?|RESEARCH|VOLUNTEER EXPERIENCE|LEADERSHIP|EXTRACURRICULAR ACTIVITIES|LANGUAGES|INTERESTS|RELEVANT COURSEWORK|TRAINING|INTERNSHIPS?|REFERENCES|CONTACT INFORMATION|PROFESSIONAL TITLE|OTHER)[\s:]*$/i
 const SECTION_ALIASES: Record<string, string> = { 'professional summary': 'summary', 'career objective': 'objective', 'professional experience': 'experience', 'employment history': 'experience', 'work history': 'experience', 'personal projects': 'projects', 'technical skills': 'skills', 'certification': 'certifications', 'licenses': 'certifications', 'achievement': 'achievements', 'award': 'awards', 'publication': 'publications', 'volunteer experience': 'volunteer', 'extracurricular activities': 'extracurricular', 'internship': 'internships', 'contact information': 'contact' }
 
 export function normalize(value: string) { return (ALIASES[value.toLowerCase()] ?? value.toLowerCase()).replace(/[^a-z0-9+#.-]/g, '') }
@@ -93,45 +93,58 @@ function changesFromDiff(diff: DiffPart[]): ImprovementChange[] {
 }
 function cleanLine(line: string) { return line.replace(/^\s*(?:[-*•◦▪‣]|\d+[.)])\s*/, '').trim() }
 function supportedTerms(content: string, keywordPool: string[], resumeSet: Set<string>) { return keywordPool.filter((keyword) => resumeSet.has(keyword) && content.toLowerCase().includes(keyword.replace(/-/g, ' '))) }
+function capitalizeSentence(value: string) { const trimmed = value.trim(); return trimmed ? trimmed.replace(/^[a-z]/, (character) => character.toUpperCase()) : trimmed }
+function normalizeBullet(line: string) { const marker = line.trim().match(/^([-*•◦▪‣]|\d+[.)])\s+/)?.[1]; return { marker: marker?.match(/^\d/) ? `${marker} ` : '• ', body: cleanLine(line) } }
+function rewriteBullet(line: string, sectionTitle: string) {
+  const { marker, body } = normalizeBullet(line)
+  if (!body) return line
+  let rewritten = body
+    .replace(/^helped organize\s+/i, 'Organized ')
+    .replace(/^(worked on|worked with|helped with|helped|was responsible for|responsible for|involved in|used)\s+/i, 'Developed ')
+    .replace(/^(made|created)\s+/i, 'Built ')
+  if (rewritten === body && !/\b(led|built|developed|designed|implemented|managed|delivered|created|improved|analyzed|conducted|organized|certified|graduated)\b/i.test(body)) rewritten = `Contributed to ${body.charAt(0).toLowerCase()}${body.slice(1)}`
+  return `${marker}${capitalizeSentence(rewritten)}${/[.!?]$/.test(rewritten) ? '' : '.'}`
+}
 function improveContent(section: ResumeSection, keywordPool: string[], resumeSet: Set<string>): { improved: string; why: string } | null {
   const { content, key, structureType } = section
-  const terms = supportedTerms(content, keywordPool, resumeSet).slice(0, 3)
   const lines = content.split('\n').filter((line) => line.trim())
+  const terms = supportedTerms(content, keywordPool, resumeSet).slice(0, 4)
   if (key === 'header' || key === 'contact' || key === 'references') return null
-  if (key === 'summary' || key === 'about' || key === 'profile' || key === 'objective') {
-    if (content.length < 35 || terms.length === 0) return null
+  if (['summary', 'about', 'about-me', 'profile', 'objective'].includes(key)) {
+    if (content.length < 20) return null
     const normalized = content.replace(/\s+/g, ' ').trim()
-    const improved = normalized.endsWith('.') ? normalized : `${normalized}.`
-    if (improved === content.trim()) return null
-    return { improved, why: `Tightened this ${section.title.toLowerCase()} into a concise, role-aligned paragraph using only supported language.` }
+    const lead = normalized.replace(/[.!?]+$/, '')
+    const relevance = terms.length ? ` with experience relevant to ${terms.join(', ')}` : ''
+    const improved = `${capitalizeSentence(lead)}${relevance}.`
+    if (improved === normalized) return null
+    return { improved, why: `Rewrote this ${section.title.toLowerCase()} as a complete, concise paragraph using only the resume's existing claims${terms.length ? ` and supported role terms (${terms.join(', ')})` : ''}.` }
   }
-  if (structureType === 'experience_entry' || structureType === 'project_entry' || key === 'leadership' || key === 'volunteer') {
-    const bullets = lines.filter(isBullet)
-    if (!bullets.length) return null
-    const improvedLines = lines.map((line) => {
-      if (!isBullet(line)) return line
-      const body = cleanLine(line)
-      const action = /^(worked|helped|responsible for|did|made|used)\b/i.test(body) ? body.replace(/^(worked|helped|responsible for|did|made|used)\s*/i, 'Developed ') : body
-      return `• ${action.charAt(0).toUpperCase()}${action.slice(1)}`
+  if (key === 'skills' || key === 'technical-skills' || structureType === 'grouped_list') {
+    const normalizedLines = lines.map((line) => {
+      const match = line.match(/^([^:]{2,40}):\s*(.*)$/)
+      if (match) return `${capitalizeSentence(match[1])}: ${match[2].replace(/\s*,\s*/g, ', ')}`
+      return line.replace(/^[*◦▪‣-]\s*/, '• ')
     })
+    if (terms.length && !normalizedLines.some((line) => line.toLowerCase().startsWith('relevant to this role:'))) normalizedLines.push(`Relevant to this role: ${terms.map(title).join(', ')}`)
+    const improved = normalizedLines.join('\n')
+    if (improved === content.trim()) return null
+    return { improved, why: `Organized the existing ${section.title.toLowerCase()} into consistent ATS-readable groups and surfaced supported role terms without adding unsupported skills.` }
+  }
+  if (structureType === 'experience_entry' || structureType === 'project_entry' || ['leadership', 'volunteer', 'extracurricular', 'internships'].includes(key)) {
+    const improvedLines = lines.map((line) => isBullet(line) ? rewriteBullet(line, section.title) : line.trim())
     const improved = improvedLines.join('\n')
     if (improved === content.trim()) return null
-    return { improved, why: `Refined ${section.title.toLowerCase()} bullets while preserving each entry, claim, technology, and outcome.` }
+    return { improved, why: `Rewrote each ${section.title.toLowerCase()} bullet with clearer action language while preserving employers, roles, dates, technologies, and outcomes.` }
   }
-  if (key === 'skills' || structureType === 'grouped_list') {
-    const improved = lines.map((line) => line.replace(/^[•◦▪‣*-]\s*/, '• ')).join('\n')
+  if (['education', 'certifications', 'awards', 'achievements', 'publications', 'research', 'languages', 'training'].includes(key) || structureType === 'education_entry' || structureType === 'certification_list') {
+    const improved = lines.map((line) => isBullet(line) ? rewriteBullet(line, section.title) : line.trim()).join('\n')
     if (improved === content.trim()) return null
-    return { improved, why: `Normalized the existing ${section.title.toLowerCase()} grouping for consistent ATS parsing without adding unsupported skills.` }
+    return { improved, why: `Improved the ${section.title.toLowerCase()} presentation while preserving every original credential, institution, date, and factual detail.` }
   }
-  if (key === 'education' || structureType === 'education_entry' || key === 'certifications' || key === 'awards' || key === 'achievements' || key === 'languages') {
-    const improved = lines.map((line) => line.replace(/^[*◦▪‣-]\s*/, '• ')).join('\n')
+  if (structureType === 'bullet_list' || structureType === 'numbered_list' || structureType === 'mixed' || structureType === 'custom') {
+    const improved = lines.map((line) => isBullet(line) ? rewriteBullet(line, section.title) : line.trim()).join('\n')
     if (improved === content.trim()) return null
-    return { improved, why: `Improved ${section.title.toLowerCase()} presentation while preserving each original entry and line-based structure.` }
-  }
-  if (structureType === 'bullet_list' || structureType === 'numbered_list') {
-    const improved = lines.map((line) => line.replace(/^[*◦▪‣-]\s*/, '• ')).join('\n')
-    if (improved === content.trim()) return null
-    return { improved, why: `Made this custom section easier to parse while preserving its list structure and factual content.` }
+    return { improved, why: `Rewrote this custom ${section.title.toLowerCase()} section in its existing list structure using clearer, evidence-based wording.` }
   }
   return null
 }
