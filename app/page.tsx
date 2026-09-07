@@ -1,47 +1,40 @@
+'use client'
+
+import { useState } from 'react'
+import { ArrowRight, Check, Clipboard, FileText, LockKeyhole, RotateCcw, Sparkles, Target, TriangleAlert } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { analyze, exampleData, type AnalysisResult } from '@/lib/ats'
+
+function Meter({ value }: { value: number }) { return <div className="meter"><span style={{ width: `${value}%` }} /></div> }
+function SectionTitle({ eyebrow, title, detail }: { eyebrow: string; title: string; detail?: string }) { return <div className="section-title"><span className="eyebrow">{eyebrow}</span><h2>{title}</h2>{detail && <p>{detail}</p>}</div> }
+
 export default function Page() {
-  return (
-    <main
-      style={{
-        colorScheme: 'light dark',
-        position: 'relative',
-        display: 'flex',
-        minHeight: '100vh',
-        alignItems: 'center',
-        justifyContent: 'center',
-        backgroundColor: 'light-dark(#fff, #000)',
-        color: 'light-dark(#000, #fff)',
-      }}
-    >
-      <svg
-        aria-hidden="true"
-        style={{ width: 80, height: 80 }}
-        width={80}
-        height={80}
-        fill="none"
-        viewBox="0 0 20 20"
-        xmlns="http://www.w3.org/2000/svg"
-        stroke="currentColor"
-        strokeWidth="0.5"
-      >
-        <path
-          d="M14.2 14.2H17V6.9375C17 4.76288 15.2371 3 13.0625 3H5.8V5.8M14.2 14.2V7.79063L7.79062 14.2H14.2ZM14.2 14.2V17H6.9375C4.76288 17 3 15.2371 3 13.0625V5.8H5.8M5.8 5.8V12.2313L12.2313 5.8H5.8Z"
-          strokeLinejoin="round"
-        />
-      </svg>
-      <p
-        style={{
-          position: 'absolute',
-          left: '50%',
-          top: 'calc(50% + 56px)',
-          transform: 'translateX(-50%)',
-          whiteSpace: 'nowrap',
-          fontSize: '14px',
-          fontWeight: 500,
-          color: 'light-dark(#71717a, #a1a1aa)',
-        }}
-      >
-        Your v0 generation will show here.
-      </p>
-    </main>
-  )
+  const [resume, setResume] = useState('')
+  const [jobDescription, setJobDescription] = useState('')
+  const [result, setResult] = useState<AnalysisResult | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [status, setStatus] = useState('')
+  const [aiEnabled, setAiEnabled] = useState(false)
+
+  async function runAnalysis() {
+    if (!resume.trim() || !jobDescription.trim()) { setStatus('Add both documents to run the analysis.'); return }
+    setLoading(true); setStatus('Analyzing locally…')
+    try {
+      const response = await fetch('/api/v1/analyze', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ resume, jobDescription }) })
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.error)
+      setResult(data.result); setStatus('Analysis complete. Your document text was not saved.')
+    } catch (error) { setStatus(error instanceof Error ? error.message : 'Something went wrong.') } finally { setLoading(false) }
+  }
+  function loadExample() { setResume(exampleData.resume); setJobDescription(exampleData.jobDescription); setResult(null); setStatus('Example loaded. Edit it or analyze as-is.') }
+  function clearAll() { setResume(''); setJobDescription(''); setResult(null); setStatus('Cleared. Nothing was stored.') }
+  async function copySuggestions() { if (!result) return; await navigator.clipboard.writeText(result.suggestions.join('\n')); setStatus('Suggestions copied to clipboard.') }
+
+  return <main className="app-shell">
+    <header className="topbar"><a className="brand" href="/"><span className="brand-mark"><Target size={18} /></span><span>signal<span className="brand-muted">/ats</span></span></a><nav><a href="#how-it-works">How it works</a><a href="/privacy">Privacy</a></nav><div className="privacy-pill"><LockKeyhole size={14} /> Local-first analysis</div></header>
+    <section className="hero"><div className="hero-copy"><span className="eyebrow">Resume intelligence, without the guesswork</span><h1>Make your resume <em>findable.</em></h1><p>Compare your resume to a job description with a transparent, explainable ATS scan. No accounts. No document storage. No invented experience.</p><div className="hero-actions"><Button onClick={loadExample} variant="outline" size="lg"><Sparkles size={16} /> Try an example</Button><span className="hero-note">Takes less than a minute</span></div></div><div className="hero-aside"><div className="mini-score"><span>Signal score</span><strong>78</strong><small>for a product design role</small></div><div className="mini-lines"><span /><span /><span /><span /></div></div></section>
+    <section className="workspace" aria-label="Resume and job description input"><div className="workspace-head"><div><span className="eyebrow">01 / Add context</span><h2>Two documents. One clearer signal.</h2></div><Button onClick={clearAll} variant="ghost"><RotateCcw size={15} /> Clear all</Button></div><div className="editors"><article className="editor-card"><div className="editor-head"><div><FileText size={18} /><div><h3>Your resume</h3><p>Paste the text from your current resume.</p></div></div><span className="char-count">{resume.length.toLocaleString()} / 30k</span></div><textarea aria-label="Your resume" value={resume} onChange={(event) => setResume(event.target.value)} placeholder="Paste resume text here…" /><div className="editor-foot"><span>{resume.trim() ? `${resume.trim().split(/\s+/).length} words` : 'Plain text works best'}</span><button onClick={loadExample}>Use example</button></div></article><article className="editor-card"><div className="editor-head"><div><Target size={18} /><div><h3>Job description</h3><p>Paste the role you are tailoring for.</p></div></div><span className="char-count">{jobDescription.length.toLocaleString()} / 30k</span></div><textarea aria-label="Job description" value={jobDescription} onChange={(event) => setJobDescription(event.target.value)} placeholder="Paste job description here…" /><div className="editor-foot"><span>{jobDescription.trim() ? `${jobDescription.trim().split(/\s+/).length} words` : 'Required for matching'}</span><button onClick={loadExample}>Use example</button></div></article></div><div className="run-row"><label className="toggle"><input type="checkbox" checked={aiEnabled} onChange={(event) => setAiEnabled(event.target.checked)} /><span />Optional AI assist <small>coming soon</small></label><Button onClick={runAnalysis} disabled={loading} size="lg">{loading ? 'Analyzing…' : 'Analyze match'} <ArrowRight size={16} /></Button></div><p className="status" role="status">{status}</p></section>
+    {result && <section className="results" aria-live="polite"><div className="results-head"><div><span className="eyebrow">02 / Read the signal</span><h2>Your resume has a <em>{result.scoreLabel.toLowerCase()}</em>.</h2></div><div className="result-meta"><span><LockKeyhole size={14} /> Not saved</span><span>{result.stats.resumeWords} resume words</span></div></div><div className="results-grid"><article className="score-card"><div className="score-ring"><strong>{result.score}</strong><span>/ 100</span></div><h3>Overall match</h3><p>A directional score based on matching, structure, and clarity.</p><div className="score-bar"><span style={{ width: `${result.score}%` }} /></div></article><article className="breakdown-card"><h3>What is driving the score?</h3>{result.breakdown.map((item) => <div className="breakdown" key={item.label}><div><span>{item.label}</span><strong>{item.value}</strong></div><Meter value={item.value} /><small>{item.detail}</small></div>)}</article></div><div className="results-columns"><article className="result-panel"><SectionTitle eyebrow="Match map" title="Keywords in context" detail="Terms found in the role and whether they appear in your resume." /><div className="chips">{result.keywords.map((item) => <span className={item.matched ? 'chip matched' : 'chip'} key={item.label}>{item.matched && <Check size={13} />}{item.label}</span>)}</div></article><article className="result-panel"><SectionTitle eyebrow="Requirements" title="Coverage at a glance" /><div className="requirement-list">{result.requirements.map((item) => <div className="requirement" key={item.label}><span className={item.matched ? 'check good' : 'check'}>{item.matched ? <Check size={13} /> : <span />}</span><span>{item.label}</span><small>{item.matched ? 'Found' : 'Not found'}</small></div>)}</div></article></div><div className="results-columns lower"><article className="result-panel priority-panel"><SectionTitle eyebrow="Next edits" title="Highest-impact priorities" detail="Suggestions never add claims you did not make." />{result.priorities.map((item) => <div className={`priority ${item.tone}`} key={item.label}><span className="priority-dot" /><div><strong>{item.label}</strong><p>{item.detail}</p></div></div>)}</article><article className="result-panel"><SectionTitle eyebrow="Diagnostics" title="Document health" />{result.diagnostics.map((item) => <div className="diagnostic" key={item.label}><span className={`diagnostic-icon ${item.tone}`}>{item.tone === 'good' ? <Check size={14} /> : <TriangleAlert size={14} />}</span><div><strong>{item.label}</strong><p>{item.detail}</p></div></div>)}<Button onClick={copySuggestions} variant="outline" className="copy-button"><Clipboard size={15} /> Copy suggestions</Button></article></div></section>}
+    <section className="how" id="how-it-works"><span className="eyebrow">Built for trust</span><h2>A useful signal, not a magic number.</h2><div className="trust-grid"><div><strong>01</strong><h3>Parse</h3><p>We look for conventional sections, terms, and document structure.</p></div><div><strong>02</strong><h3>Compare</h3><p>We normalize cautious aliases and show exactly what matched.</p></div><div><strong>03</strong><h3>Improve</h3><p>You decide what to change. The tool never invents experience.</p></div></div></section><footer><span>signal/ats</span><span>Private by default · No analytics on document text</span><a href="/privacy">Privacy notes</a></footer>
+  </main>
 }
